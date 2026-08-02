@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Sheet of paper with a folded top-right corner. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,22 L62,22 L78,38 L78,86 L34,86 Z" />
+    <path
+        android:fillColor="#BBDEFB"
+        android:pathData="M62,22 L78,38 L62,38 Z" />
+    <!-- Red "text" bars, echoing the usual PDF colour. -->
+    <path
+        android:fillColor="#D32F2F"
+        android:pathData="M42,52 L70,52 L70,59 L42,59 Z" />
+    <path
+        android:fillColor="#D32F2F"
+        android:pathData="M42,65 L62,65 L62,72 L42,72 Z" />
+</vector>
