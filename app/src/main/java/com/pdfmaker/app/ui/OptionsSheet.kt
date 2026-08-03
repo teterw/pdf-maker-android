@@ -110,7 +110,7 @@ fun OptionsSheet(
 }
 
 @Composable
-private fun SectionLabel(text: String) {
+internal fun SectionLabel(text: String) {
     Spacer(Modifier.height(20.dp))
     Text(
         text = text,

@@ -7,10 +7,15 @@ import androidx.lifecycle.viewModelScope
 import com.pdfmaker.app.core.BuildOptions
 import com.pdfmaker.app.core.BuildResult
 import com.pdfmaker.app.core.DocItem
+import com.pdfmaker.app.core.DocKind
 import com.pdfmaker.app.core.DocumentLoader
+import com.pdfmaker.app.core.ExtractOptions
+import com.pdfmaker.app.core.ExtractResult
+import com.pdfmaker.app.core.PageExporter
 import com.pdfmaker.app.core.PdfBuilder
 import com.pdfmaker.app.core.SortMode
 import com.pdfmaker.app.core.ThumbnailLoader
+import com.pdfmaker.app.core.ViewMode
 import com.pdfmaker.app.core.sortedBy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,6 +31,7 @@ import kotlinx.coroutines.withContext
 data class UiState(
     val items: List<DocItem> = emptyList(),
     val sortMode: SortMode = SortMode.MANUAL,
+    val viewMode: ViewMode = ViewMode.COMPACT,
     val selectedIds: Set<Long> = emptySet(),
     val selectionMode: Boolean = false,
     val options: BuildOptions = BuildOptions(),
@@ -38,9 +44,20 @@ data class UiState(
     val isBusy: Boolean get() = isImporting || isExporting
 }
 
+/** State for the "PDF → Images" tab, which works on one source document at a time. */
+data class ExtractState(
+    val source: DocItem? = null,
+    val options: ExtractOptions = ExtractOptions(),
+    val isLoading: Boolean = false,
+    val progress: Pair<Int, Int>? = null
+) {
+    val isBusy: Boolean get() = isLoading || progress != null
+}
+
 sealed interface UiEvent {
     data class Message(val text: String) : UiEvent
     data class Exported(val uri: Uri, val pageCount: Int, val skipped: List<String>) : UiEvent
+    data class ExportedZip(val uri: Uri, val fileCount: Int, val skipped: List<Int>) : UiEvent
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -48,10 +65,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    private val _extractState = MutableStateFlow(ExtractState())
+    val extractState: StateFlow<ExtractState> = _extractState.asStateFlow()
+
     private val events = Channel<UiEvent>(Channel.BUFFERED)
     val eventFlow = events.receiveAsFlow()
 
     private var exportJob: Job? = null
+    private var extractJob: Job? = null
 
     // ---- Importing ------------------------------------------------------------------
 
@@ -93,6 +114,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSortMode(mode: SortMode) {
         _state.update { it.copy(sortMode = mode, items = it.items.sortedBy(mode)) }
+    }
+
+    fun toggleViewMode() {
+        _state.update { it.copy(viewMode = it.viewMode.toggled()) }
     }
 
     fun reverseOrder() {
@@ -220,6 +245,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         exportJob?.cancel()
         exportJob = null
         _state.update { it.copy(exportProgress = null) }
+        emitNow("Export cancelled.")
+    }
+
+    // ---- PDF → images ---------------------------------------------------------------
+
+    fun setExtractSource(uri: Uri) {
+        viewModelScope.launch {
+            _extractState.update { it.copy(isLoading = true) }
+            val context = getApplication<Application>()
+            val item = withContext(Dispatchers.IO) {
+                DocumentLoader.load(context, uri, persist = false)
+            }
+
+            if (item == null || item.kind != DocKind.PDF) {
+                _extractState.update { it.copy(isLoading = false) }
+                emit("That file could not be read as a PDF.")
+                return@launch
+            }
+
+            _extractState.update { current ->
+                current.source?.let { ThumbnailLoader.evict(it.id) }
+                current.copy(source = item, isLoading = false)
+            }
+        }
+    }
+
+    fun updateExtractOptions(transform: (ExtractOptions) -> ExtractOptions) {
+        _extractState.update { it.copy(options = transform(it.options)) }
+    }
+
+    fun extractToZip(destination: Uri) {
+        if (extractJob?.isActive == true) return
+        val snapshot = _extractState.value
+        val source = snapshot.source
+        if (source == null) {
+            emitNow("Choose a PDF first.")
+            return
+        }
+
+        extractJob = viewModelScope.launch {
+            _extractState.update { it.copy(progress = 0 to source.pageCount) }
+            val result = PageExporter.toZip(
+                context = getApplication(),
+                source = source,
+                destination = destination,
+                options = snapshot.options,
+                onProgress = { done, total ->
+                    _extractState.update { it.copy(progress = done to total) }
+                }
+            )
+            _extractState.update { it.copy(progress = null) }
+
+            when (result) {
+                is ExtractResult.Success ->
+                    events.send(UiEvent.ExportedZip(destination, result.fileCount, result.skipped))
+
+                is ExtractResult.Failure -> emit(result.message)
+            }
+        }
+    }
+
+    fun cancelExtract() {
+        extractJob?.cancel()
+        extractJob = null
+        _extractState.update { it.copy(progress = null) }
         emitNow("Export cancelled.")
     }
 

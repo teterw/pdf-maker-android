@@ -21,9 +21,13 @@ object PdfInspector {
 
     /** Renders page 0 into a bitmap whose longest side is [maxDimension] px. */
     fun renderFirstPage(context: Context, uri: Uri, maxDimension: Int): Bitmap? =
+        renderPage(context, uri, 0, maxDimension)
+
+    /** Renders one page into a bitmap whose longest side is [maxDimension] px. */
+    fun renderPage(context: Context, uri: Uri, pageIndex: Int, maxDimension: Int): Bitmap? =
         withRenderer(context, uri) { renderer ->
-            if (renderer.pageCount == 0) return@withRenderer null
-            renderer.openPage(0).use { page ->
+            if (pageIndex !in 0 until renderer.pageCount) return@withRenderer null
+            renderer.openPage(pageIndex).use { page ->
                 val scale = maxDimension.toFloat() / maxOf(page.width, page.height).coerceAtLeast(1)
                 val w = (page.width * scale).toInt().coerceAtLeast(1)
                 val h = (page.height * scale).toInt().coerceAtLeast(1)

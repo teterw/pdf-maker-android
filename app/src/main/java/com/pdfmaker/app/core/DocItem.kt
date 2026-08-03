@@ -19,6 +19,14 @@ data class DocItem(
     val pageCount: Int = 1
 )
 
+/** How the build list draws each entry — a dense row, or a full-width page preview. */
+enum class ViewMode(val label: String) {
+    COMPACT("Compact list"),
+    LARGE("Large previews");
+
+    fun toggled(): ViewMode = if (this == COMPACT) LARGE else COMPACT
+}
+
 enum class SortMode(val label: String) {
     MANUAL("Custom order"),
     NAME_ASC("Name (A → Z)"),

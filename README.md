@@ -1,11 +1,13 @@
 # PDF Maker
 
-An offline Android app for turning images and existing PDFs into a single PDF —
-the common "iLovePDF" workflow, without an upload.
+An offline Android app for turning images and existing PDFs into a single PDF, and for
+turning a PDF back into images — the common "iLovePDF" workflow, without an upload.
 
 Everything happens on the device. The app has no internet permission at all.
 
 ## Features
+
+### Create PDF
 
 - **Images → PDF.** PNG, JPEG, WebP, HEIC, BMP and GIF, one page per image.
 - **PDF → PDF.** Existing PDFs are merged in page-for-page. Text and vectors are
@@ -23,6 +25,22 @@ Everything happens on the device. The app has no internet permission at all.
   auto-landscape for wide images.
 - **Quality control:** lossless, high, medium or compact, trading file size against
   fidelity. Camera photos are EXIF-rotated correctly.
+
+### Seeing what you are building
+
+- **Two view modes.** A compact list for reordering forty scans quickly, or large
+  previews where each page fills the width of the phone. Toggle it from the app bar.
+- **Full-screen viewer.** Tap any preview to open the page full screen. Pinch or
+  double-tap to zoom, drag to pan, and swipe sideways to page through a multi-page PDF.
+  Pages are re-rendered at viewer resolution, so zooming in really does show more detail.
+
+### PDF → Images
+
+- **A whole PDF into one `.zip`**, one image per page, on the second tab.
+- **JPEG or PNG**, at 96, 150 or 300 dpi, with a JPEG quality slider.
+- Pages are rendered and streamed into the archive one at a time, so a 300-page
+  document never needs more than a single page in memory. Progress is live and the
+  export can be cancelled.
 
 ## Install
 
@@ -65,7 +83,9 @@ Pushing a `v*` tag builds the APK and attaches it to a GitHub Release.
 | Reading files | Storage Access Framework + the Android photo picker — no broad storage permission |
 | PDF merging | [PDFBox-Android](https://github.com/TomRoush/PdfBox-Android) `PDFMergerUtility`, which clones page objects instead of rasterising them |
 | Image embedding | PDFBox `JPEGFactory` / `LosslessFactory`, with images downsampled to a quality-dependent cap first |
-| Thumbnails | Platform `PdfRenderer` for PDFs, `BitmapFactory` for images, behind a small `LruCache` |
+| PDF → images | Platform `PdfRenderer` at the chosen dpi, compressed straight into a `ZipOutputStream` |
+| Thumbnails | Platform `PdfRenderer` for PDFs, `BitmapFactory` for images, behind a small `LruCache` keyed by item *and* size |
+| Zoom viewer | Pages re-rendered at ~1800 px behind `detectTransformGestures`, in a `HorizontalPager` for multi-page PDFs |
 | UI | Jetpack Compose + Material 3, with dynamic colour on Android 12+ |
 
 Long documents are built off the main thread with a live progress count, and the

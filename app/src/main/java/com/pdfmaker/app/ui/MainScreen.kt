@@ -1,8 +1,5 @@
 package com.pdfmaker.app.ui
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -16,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +28,8 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -64,12 +62,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.pdfmaker.app.MainViewModel
 import com.pdfmaker.app.UiEvent
+import com.pdfmaker.app.core.DocItem
 import com.pdfmaker.app.core.PdfBuilder
 import com.pdfmaker.app.core.SortMode
+import com.pdfmaker.app.core.ViewMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
+fun MainScreen(
+    viewModel: MainViewModel,
+    currentTab: HomeTab,
+    onTabChange: (HomeTab) -> Unit
+) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -78,6 +82,7 @@ fun MainScreen(viewModel: MainViewModel) {
     var showOverflow by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<DocItem?>(null) }
 
     // The system document picker already supports multi-select, which is what makes
     // "grab 30 scans at once" work without any storage permission.
@@ -110,9 +115,12 @@ fun MainScreen(viewModel: MainViewModel) {
                         duration = SnackbarDuration.Long
                     )
                     if (result == SnackbarResult.ActionPerformed) {
-                        sharePdf(context, event.uri)
+                        shareFile(context, event.uri, "application/pdf", "Share PDF")
                     }
                 }
+
+                // Belongs to the PDF → Images tab, which collects it there.
+                is UiEvent.ExportedZip -> Unit
             }
         }
     }
@@ -151,6 +159,17 @@ fun MainScreen(viewModel: MainViewModel) {
                 TopAppBar(
                     title = { Text("PDF Maker") },
                     actions = {
+                        IconButton(onClick = viewModel::toggleViewMode) {
+                            Icon(
+                                imageVector = if (state.viewMode == ViewMode.COMPACT) {
+                                    Icons.Filled.ViewAgenda
+                                } else {
+                                    Icons.Filled.ViewList
+                                },
+                                contentDescription = "Switch to ${state.viewMode.toggled().label}"
+                            )
+                        }
+
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.Filled.Sort, contentDescription = "Sort")
@@ -227,22 +246,25 @@ fun MainScreen(viewModel: MainViewModel) {
             }
         },
         bottomBar = {
-            if (state.items.isNotEmpty()) {
-                BottomBar(
-                    pageCount = state.totalPages,
-                    exportProgress = state.exportProgress,
-                    busy = state.isBusy,
-                    onAddPhotos = {
-                        pickPhotos.launch(
-                            PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.ImageOnly
+            Column {
+                if (state.items.isNotEmpty()) {
+                    BottomBar(
+                        pageCount = state.totalPages,
+                        exportProgress = state.exportProgress,
+                        busy = state.isBusy,
+                        onAddPhotos = {
+                            pickPhotos.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                                )
                             )
-                        )
-                    },
-                    onAddFiles = { pickFiles.launch(PICKER_MIME_TYPES) },
-                    onExport = { createDocument.launch(PdfBuilder.suggestFileName()) },
-                    onCancel = viewModel::cancelExport
-                )
+                        },
+                        onAddFiles = { pickFiles.launch(PICKER_MIME_TYPES) },
+                        onExport = { createDocument.launch(PdfBuilder.suggestFileName()) },
+                        onCancel = viewModel::cancelExport
+                    )
+                }
+                HomeTabBar(current = currentTab, onTabChange = onTabChange)
             }
         }
     ) { padding ->
@@ -266,21 +288,42 @@ fun MainScreen(viewModel: MainViewModel) {
                 ) {
                     items(items = state.items, key = { it.id }) { item ->
                         val index = state.items.indexOfFirst { it.id == item.id }
-                        DocRow(
-                            index = index,
-                            item = item,
-                            selected = item.id in state.selectedIds,
-                            selectionMode = state.selectionMode,
-                            canMoveUp = index > 0,
-                            canMoveDown = index < state.items.lastIndex,
-                            onClick = {
-                                if (state.selectionMode) viewModel.toggleSelection(item.id)
-                            },
-                            onLongClick = { viewModel.startSelection(item.id) },
-                            onMoveUp = { viewModel.move(index, index - 1) },
-                            onMoveDown = { viewModel.move(index, index + 1) },
-                            onRemove = { viewModel.remove(item.id) }
-                        )
+                        val selected = item.id in state.selectedIds
+                        val onClick = {
+                            if (state.selectionMode) viewModel.toggleSelection(item.id)
+                        }
+
+                        when (state.viewMode) {
+                            ViewMode.COMPACT -> DocRow(
+                                index = index,
+                                item = item,
+                                selected = selected,
+                                selectionMode = state.selectionMode,
+                                canMoveUp = index > 0,
+                                canMoveDown = index < state.items.lastIndex,
+                                onClick = onClick,
+                                onLongClick = { viewModel.startSelection(item.id) },
+                                onOpenPreview = { preview = item },
+                                onMoveUp = { viewModel.move(index, index - 1) },
+                                onMoveDown = { viewModel.move(index, index + 1) },
+                                onRemove = { viewModel.remove(item.id) }
+                            )
+
+                            ViewMode.LARGE -> DocCard(
+                                index = index,
+                                item = item,
+                                selected = selected,
+                                selectionMode = state.selectionMode,
+                                canMoveUp = index > 0,
+                                canMoveDown = index < state.items.lastIndex,
+                                onClick = onClick,
+                                onLongClick = { viewModel.startSelection(item.id) },
+                                onOpenPreview = { preview = item },
+                                onMoveUp = { viewModel.move(index, index - 1) },
+                                onMoveDown = { viewModel.move(index, index + 1) },
+                                onRemove = { viewModel.remove(item.id) }
+                            )
+                        }
                     }
                 }
             }
@@ -289,6 +332,10 @@ fun MainScreen(viewModel: MainViewModel) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         }
+    }
+
+    preview?.let { item ->
+        PageViewerDialog(item = item, onDismiss = { preview = null })
     }
 
     if (showOptions) {
@@ -333,7 +380,6 @@ private fun BottomBar(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             if (exportProgress != null) {
@@ -378,12 +424,3 @@ private fun BottomBar(
 }
 
 private val PICKER_MIME_TYPES = arrayOf("image/*", "application/pdf")
-
-private fun sharePdf(context: Context, uri: Uri) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "application/pdf"
-        putExtra(Intent.EXTRA_STREAM, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    runCatching { context.startActivity(Intent.createChooser(intent, "Share PDF")) }
-}

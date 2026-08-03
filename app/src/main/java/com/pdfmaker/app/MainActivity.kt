@@ -8,7 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.core.content.IntentCompat
-import com.pdfmaker.app.ui.MainScreen
+import com.pdfmaker.app.ui.HomeScreen
 import com.pdfmaker.app.ui.PdfMakerTheme
 
 class MainActivity : ComponentActivity() {
@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             PdfMakerTheme {
-                MainScreen(viewModel)
+                HomeScreen(viewModel)
             }
         }
         consumeSharedFiles(intent)
